@@ -1,17 +1,59 @@
 #!/bin/bash
 # 青龙面板 Render 启动脚本（接管镜像默认入口 docker-entrypoint.sh）
 
-# 1. 后台等待面板初始化完成后，自动拉取脚本仓库（失败重试，共约 10 分钟）
+# 1. 后台初始化：等待面板就绪 → 同步 Cookie → 拉取脚本仓库
 (
+  # 1.1 等待面板初始化完成（auth.json 出现，最长约 15 分钟）
   i=0
-  while [ $i -lt 60 ]; do
+  while [ $i -lt 90 ]; do
+    [ -f /ql/data/config/auth.json ] && break
     sleep 10
-    if ql repo https://github.com/smallfawn/QLScriptPublic.git >/dev/null 2>&1; then
-      echo "[entrypoint] 脚本仓库拉取成功"
-      break
-    fi
     i=$((i+1))
   done
+  # 再等后端 API 就绪（最长约 5 分钟）
+  j=0
+  while [ $j -lt 30 ]; do
+    curl -s -o /dev/null http://127.0.0.1:5700/api/system && break
+    sleep 10
+    j=$((j+1))
+  done
+  echo "[entrypoint] 面板已就绪，开始初始化脚本"
+
+  # 1.2 同步 Render 环境变量中的 Cookie 到青龙 config.sh（可选入口）
+  #     也可以不用这里，直接用面板里的【京东扫码获取Cookie】任务自动写入
+  for VAR in JD_COOKIE JD_WSCK; do
+    val=$(printenv $VAR)
+    if [ -n "$val" ]; then
+      sed -i "/^export $VAR=/d" /ql/data/config/config.sh 2>/dev/null
+      echo "export $VAR=\"$val\"" >> /ql/data/config/config.sh
+      echo "[entrypoint] 已同步环境变量 $VAR"
+    fi
+  done
+
+  # 1.3 拉取脚本仓库（失败自动重试 3 次）
+  pull() {
+    local n=0
+    while [ $n -lt 3 ]; do
+      if "$@" >/dev/null 2>&1; then
+        echo "[entrypoint] 拉取成功: $1 $2 $3"
+        return 0
+      fi
+      n=$((n+1))
+      sleep 30
+    done
+    echo "[entrypoint] 拉取失败(已重试3次): $1 $2 $3"
+  }
+
+  # 公告脚本仓库（微信小程序/日常签到等）
+  pull ql repo https://github.com/smallfawn/QLScriptPublic.git
+  # wskey 自动转换（Cookie 过期自动续期：JD_WSCK → JD_COOKIE）
+  pull ql repo https://github.com/Zy143L/wskey.git "wskey"
+  # 京豆/京东活动脚本合集（京豆签到、种豆得豆、农场等，任务名均为中文）
+  pull ql repo https://github.com/shufflewzc/faker2.git "jd_|jx_|getJDCookie" "activity|backUp" "^jd[^_]|USER|function|sendNotify|utils|JDJR|jxAlgo|depend"
+  # 京东扫码获取Cookie（扫码后自动写入 JD_COOKIE，手动运行即可）
+  pull ql raw https://raw.githubusercontent.com/DemoMirzhangMan643/qinglong-render/main/scripts/jd_cookie_scan.py
+
+  echo "[entrypoint] 所有脚本仓库初始化完成"
 ) &
 
 # 2. 自保活：定期访问公网地址，防止免费套餐因无流量休眠（休眠会清空磁盘数据）
