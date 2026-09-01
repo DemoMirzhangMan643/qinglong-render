@@ -1,25 +1,41 @@
 #!/bin/bash
 # 青龙面板 Render 启动脚本（接管镜像默认入口 docker-entrypoint.sh）
 
-# 1. 后台初始化：等待面板就绪 → 同步 Cookie → 拉取脚本仓库
+# 1. 后台初始化：等待面板就绪 → 自动初始化 → 同步 Cookie → 拉取脚本仓库
 (
-  # 1.1 等待面板初始化完成（auth.json 出现，最长约 15 分钟）
-  i=0
-  while [ $i -lt 90 ]; do
-    [ -f /ql/data/config/auth.json ] && break
-    sleep 10
-    i=$((i+1))
-  done
-  # 再等后端 API 就绪（最长约 5 分钟）
+  QL_USER="${QL_USERNAME:-admin}"
+  QL_PASS="${QL_PASSWORD:-Qinglong@2026}"
+
+  # 1.1 等待后端 API 就绪（最长约 10 分钟）
   j=0
-  while [ $j -lt 30 ]; do
+  while [ $j -lt 60 ]; do
     curl -s -o /dev/null http://127.0.0.1:5700/api/system && break
     sleep 10
     j=$((j+1))
   done
+  echo "[entrypoint] 面板 API 已就绪"
+
+  # 1.2 首次启动自动初始化面板（免费套餐重新部署会重置磁盘，这里自动设置账号密码）
+  SYS_JSON=$(curl -s http://127.0.0.1:5700/api/system)
+  if echo "$SYS_JSON" | grep -q '"isInitialized":false'; then
+    curl -s -X PUT http://127.0.0.1:5700/api/user/init \
+      -H 'Content-Type: application/json' \
+      -d "{\"username\":\"$QL_USER\",\"password\":\"$QL_PASS\"}" >/dev/null
+    echo "[entrypoint] 面板已自动初始化（账号: $QL_USER 密码: $QL_PASS）"
+  else
+    echo "[entrypoint] 面板已初始化过"
+  fi
+
+  # 1.3 等待 auth.json 出现（初始化完成后即生成，最长约 5 分钟）
+  i=0
+  while [ $i -lt 30 ]; do
+    [ -f /ql/data/config/auth.json ] && break
+    sleep 10
+    i=$((i+1))
+  done
   echo "[entrypoint] 面板已就绪，开始初始化脚本"
 
-  # 1.2 同步 Render 环境变量中的 Cookie 到青龙 config.sh（可选入口）
+  # 1.4 同步 Render 环境变量中的 Cookie 到青龙 config.sh（可选入口）
   #     也可以不用这里，直接用面板里的【京东扫码获取Cookie】任务自动写入
   for VAR in JD_COOKIE JD_WSCK; do
     val=$(printenv $VAR)
@@ -30,7 +46,7 @@
     fi
   done
 
-  # 1.3 拉取脚本仓库（失败自动重试 3 次）
+  # 1.5 拉取脚本仓库（失败自动重试 3 次）
   pull() {
     local n=0
     while [ $n -lt 3 ]; do
