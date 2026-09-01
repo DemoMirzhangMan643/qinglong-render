@@ -1,5 +1,5 @@
 #!/bin/bash
-# 青龙面板 Render 启动脚本
+# 青龙面板 Render 启动脚本（接管镜像默认入口 docker-entrypoint.sh）
 
 # 1. 后台等待面板初始化完成后，自动拉取脚本仓库（失败重试，共约 10 分钟）
 (
@@ -25,5 +25,5 @@
   fi
 ) &
 
-# 3. 启动青龙面板（前台运行）
-exec /bin/bash /ql/start.sh
+# 3. 启动青龙面板（转发到镜像原始入口）
+exec /bin/bash /ql/docker/docker-entrypoint.sh
