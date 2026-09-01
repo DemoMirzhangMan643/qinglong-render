@@ -66,8 +66,31 @@
   pull ql repo https://github.com/Zy143L/wskey.git "wskey"
   # 京豆/京东活动脚本合集（京豆签到、种豆得豆、农场等，任务名均为中文）
   pull ql repo https://github.com/shufflewzc/faker2.git "jd_|jx_|getJDCookie" "activity|backUp" "^jd[^_]|USER|function|sendNotify|utils|JDJR|jxAlgo|depend"
-  # 京东扫码获取Cookie（扫码后自动写入 JD_COOKIE，手动运行即可）
-  pull ql raw https://raw.githubusercontent.com/DemoMirzhangMan643/qinglong-render/main/scripts/jd_cookie_scan.py
+
+  # 1.6 安装【京东扫码获取Cookie】任务（下载脚本 + API 创建定时任务，手动运行）
+  SCAN_FILE=/ql/data/scripts/jd_cookie_scan.py
+  curl -s -o "$SCAN_FILE" https://raw.githubusercontent.com/DemoMirzhangMan643/qinglong-render/main/scripts/jd_cookie_scan.py
+  if [ -s "$SCAN_FILE" ]; then
+    # 获取面板 Token：优先 auth.json 中的 token，失效则用默认账号登录
+    QL_TOKEN=$(python3 -c "import json;print(json.load(open('/ql/data/config/auth.json')).get('token',''))" 2>/dev/null)
+    if ! curl -s -H "Authorization: Bearer $QL_TOKEN" http://127.0.0.1:5700/api/user | grep -q '"code":200'; then
+      QL_TOKEN=$(curl -s -X POST http://127.0.0.1:5700/api/user/login \
+        -H 'Content-Type: application/json' \
+        -d "{\"username\":\"$QL_USER\",\"password\":\"$QL_PASS\"}" \
+        | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+    fi
+    if [ -n "$QL_TOKEN" ]; then
+      EXIST=$(curl -s -H "Authorization: Bearer $QL_TOKEN" "http://127.0.0.1:5700/api/crons?searchValue=%E4%BA%AC%E4%B8%9C%E6%89%AB%E7%A0%81" | grep -c "jd_cookie_scan.py" || true)
+      if [ "$EXIST" = "0" ]; then
+        curl -s -X POST http://127.0.0.1:5700/api/crons \
+          -H "Authorization: Bearer $QL_TOKEN" -H 'Content-Type: application/json' \
+          -d '{"name":"京东扫码获取Cookie","command":"task jd_cookie_scan.py","schedule":"0 0 31 2 *","labels":"京东"}' >/dev/null
+        echo "[entrypoint] 已创建任务【京东扫码获取Cookie】（手动运行，扫码后自动写入 JD_COOKIE）"
+      fi
+    fi
+  else
+    echo "[entrypoint] 下载 jd_cookie_scan.py 失败"
+  fi
 
   echo "[entrypoint] 所有脚本仓库初始化完成"
 ) &
