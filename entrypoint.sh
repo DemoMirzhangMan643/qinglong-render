@@ -82,10 +82,18 @@
     if [ -n "$QL_TOKEN" ]; then
       EXIST=$(curl -s -H "Authorization: Bearer $QL_TOKEN" "http://127.0.0.1:5700/api/crons?searchValue=%E4%BA%AC%E4%B8%9C%E6%89%AB%E7%A0%81" | grep -c "jd_cookie_scan.py" || true)
       if [ "$EXIST" = "0" ]; then
-        curl -s -X POST http://127.0.0.1:5700/api/crons \
+        CRON_RES=$(curl -s -X POST http://127.0.0.1:5700/api/crons \
           -H "Authorization: Bearer $QL_TOKEN" -H 'Content-Type: application/json' \
-          -d '{"name":"京东扫码获取Cookie","command":"task jd_cookie_scan.py","schedule":"0 0 31 2 *","labels":"京东"}' >/dev/null
-        echo "[entrypoint] 已创建任务【京东扫码获取Cookie】（手动运行，扫码后自动写入 JD_COOKIE）"
+          -d '{"name":"京东扫码获取Cookie","command":"task jd_cookie_scan.py","schedule":"0 0 1 1 *"}')
+        if echo "$CRON_RES" | grep -q '"code":200'; then
+          TID=$(echo "$CRON_RES" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+          curl -s -X PUT http://127.0.0.1:5700/api/crons/disable \
+            -H "Authorization: Bearer $QL_TOKEN" -H 'Content-Type: application/json' \
+            -d "[$TID]" >/dev/null
+          echo "[entrypoint] 已创建任务【京东扫码获取Cookie】（手动运行，扫码后自动写入 JD_COOKIE）"
+        else
+          echo "[entrypoint] 创建扫码任务失败: $CRON_RES"
+        fi
       fi
     fi
   else
